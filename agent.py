@@ -1,9 +1,9 @@
 """
 NutriBot 2.0 — Nutrition Agent
-IBM Granite LLM integration via IBM watsonx.ai REST API
+Google Gemini LLM integration (free tier via google-generativeai SDK)
 Implements the Agentic AI SDLC phases:
   1. Perception   — user profile ingestion
-  2. Reasoning    — plan construction with IBM Granite
+  2. Reasoning    — plan construction with Gemini
   3. Action       — plan generation + markdown export
   4. Reflection   — guardrail post-processing
   5. Response     — structured output + Q&A chat
@@ -11,23 +11,25 @@ Implements the Agentic AI SDLC phases:
 
 import os
 import re
-import json
 import textwrap
-import requests
 from typing import Optional
+from dotenv import load_dotenv
+
+# Load .env so credentials are available when agent is imported standalone
+load_dotenv()
+
+try:
+    import google.generativeai as genai
+    _GENAI_AVAILABLE = True
+except ImportError:
+    _GENAI_AVAILABLE = False
 
 # ─────────────────────────────────────────────
-# IBM watsonx.ai configuration
-# (set these as environment variables or in .env)
+# Google Gemini configuration
+# Get a free API key at: https://aistudio.google.com/app/apikey
 # ─────────────────────────────────────────────
-WATSONX_API_KEY    = os.environ.get("WATSONX_API_KEY", "")
-WATSONX_PROJECT_ID = os.environ.get("WATSONX_PROJECT_ID", "")
-WATSONX_URL        = os.environ.get("WATSONX_URL",
-                                     "https://us-south.ml.cloud.ibm.com")
-GRANITE_MODEL_ID   = "ibm/granite-13b-instruct-v2"
-
-# IAM token endpoint
-IAM_TOKEN_URL = "https://iam.cloud.ibm.com/identity/token"
+GEMINI_API_KEY  = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_MODEL    = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
 
 
 DISCLAIMER = (
@@ -53,14 +55,17 @@ HARMFUL_TOPICS = [
 class NutritionAgent:
     """
     Agentic AI class that orchestrates:
-    - IBM Granite LLM calls via watsonx.ai
+    - Google Gemini LLM calls (free tier)
     - Guardrail filtering
     - Personalised nutrition plan generation
     - Follow-up Q&A
     """
 
     def __init__(self):
-        self._iam_token: Optional[str] = None
+        self._gemini_model = None
+        if _GENAI_AVAILABLE and GEMINI_API_KEY:
+            genai.configure(api_key=GEMINI_API_KEY)
+            self._gemini_model = genai.GenerativeModel(GEMINI_MODEL)
 
     # ─────────────────────────────────────────
     # Phase 1 & 2 — Perception + Reasoning
@@ -128,63 +133,25 @@ class NutritionAgent:
     # Phase 3 — Action (LLM call)
     # ─────────────────────────────────────────
 
-    def _get_iam_token(self) -> str:
-        """Obtain a fresh IBM Cloud IAM bearer token."""
-        if not WATSONX_API_KEY:
-            return ""
+    def _call_llm(self, prompt: str, max_tokens: int = 1200) -> str:
+        """
+        Call Google Gemini via the google-generativeai SDK.
+        Falls back to the rule-based generator if the API key is absent
+        or if the call fails.
+        """
+        if not _GENAI_AVAILABLE or not GEMINI_API_KEY or self._gemini_model is None:
+            return self._fallback_generation(prompt)
+
         try:
-            resp = requests.post(
-                IAM_TOKEN_URL,
-                data={
-                    "grant_type": "urn:ibm:params:oauth:grant-type:apikey",
-                    "apikey": WATSONX_API_KEY,
-                },
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-                timeout=15,
+            generation_config = genai.types.GenerationConfig(
+                max_output_tokens=max_tokens,
+                temperature=0.7,
             )
-            resp.raise_for_status()
-            self._iam_token = resp.json().get("access_token", "")
-        except Exception:
-            self._iam_token = ""
-        return self._iam_token
-
-    def _call_granite(self, prompt: str, max_tokens: int = 1200) -> str:
-        """
-        Call IBM Granite via watsonx.ai REST API.
-        Falls back to a rule-based plan generator if credentials are absent.
-        """
-        if not WATSONX_API_KEY or not WATSONX_PROJECT_ID:
-            return self._fallback_generation(prompt)
-
-        token = self._get_iam_token()
-        if not token:
-            return self._fallback_generation(prompt)
-
-        url = f"{WATSONX_URL}/ml/v1/text/generation?version=2023-05-29"
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
-        body = {
-            "model_id": GRANITE_MODEL_ID,
-            "input": prompt,
-            "parameters": {
-                "decoding_method": "greedy",
-                "max_new_tokens": max_tokens,
-                "min_new_tokens": 50,
-                "temperature": 0.7,
-                "repetition_penalty": 1.1,
-            },
-            "project_id": WATSONX_PROJECT_ID,
-        }
-
-        try:
-            resp = requests.post(url, headers=headers, json=body, timeout=60)
-            resp.raise_for_status()
-            data = resp.json()
-            generated = data["results"][0]["generated_text"]
-            return generated.strip()
+            response = self._gemini_model.generate_content(
+                prompt,
+                generation_config=generation_config,
+            )
+            return response.text.strip()
         except Exception as exc:
             return self._fallback_generation(prompt, error=str(exc))
 
@@ -244,7 +211,7 @@ class NutritionAgent:
         Perception → Reasoning → Action → Reflection → Response
         """
         prompt = self._build_plan_prompt(profile)
-        raw_plan = self._call_granite(prompt, max_tokens=1500)
+        raw_plan = self._call_llm(prompt, max_tokens=1500)
         safe_plan = self._apply_guardrails(raw_plan)
         plan_html = self._md_to_html(safe_plan)
 
@@ -261,7 +228,7 @@ class NutritionAgent:
             return refusal
 
         prompt = self._build_chat_prompt(message, profile)
-        raw = self._call_granite(prompt, max_tokens=400)
+        raw = self._call_llm(prompt, max_tokens=400)
         safe = self._apply_guardrails(raw)
         return safe
 
