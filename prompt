@@ -1,0 +1,22 @@
+
+
+
+
+Design and develop Nutrition Agentic AI application called NutriBot 2.0  with IBM Granite LLM . Agent should
+Collect user details: name, age, diet preference (veg/non-veg), medical history (e.g.,
+diabetes, blood pressure), and location (city, country). Generate a personalized nutrition
+plan accordingly. Follow AI ethics, avoid harmful advice, and apply guardrails. Use a
+helpful, respectful tone (HAM). Include a clear medical disclaimer at the end.
+Include agentic AI application using IBM Granite model to resolve users’ common
+queries. Design and develop web-based Nutrition Agentic AI Application.
+use python flask as tech stack.
+Follow all phases of agentic AI SDLC to create the Nutrition Agentic AI application and
+save plan into .md file.
+Create .bat file for user.
+Install necessary software and run the project from your end.
+
+Create readme.md file to deploy on github
+Create git ignore file and requirement.txt file
+Deploy all files into the github repository
+https://github.com/ankit-numpy/NutriAgent-2.0.git
+Install necessary software and run the project from your end. 
