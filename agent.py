@@ -135,14 +135,18 @@ class NutritionAgent:
     # Phase 3 — Action (LLM call)
     # ─────────────────────────────────────────
 
-    def _call_llm(self, prompt: str, max_tokens: int = 1200) -> str:
+    def _call_llm(self, prompt: str, max_tokens: int = 1200) -> tuple:
         """
         Call Google Gemini via the google-genai SDK (from google import genai).
-        Falls back to the rule-based generator if the API key is absent
-        or if the call fails.
+        Returns (text, llm_used: bool, error_msg: str).
+        Falls back to the rule-based generator if the API key is absent or the call fails.
         """
-        if not _GENAI_AVAILABLE or not GEMINI_API_KEY or self._client is None:
-            return self._fallback_generation(prompt)
+        if not _GENAI_AVAILABLE:
+            return self._fallback_generation(prompt), False, "google-genai package not installed."
+        if not GEMINI_API_KEY or GEMINI_API_KEY == "your_gemini_api_key_here":
+            return self._fallback_generation(prompt), False, "GEMINI_API_KEY is not set in .env."
+        if self._client is None:
+            return self._fallback_generation(prompt), False, "Gemini client failed to initialise."
 
         try:
             response = self._client.models.generate_content(
@@ -153,9 +157,9 @@ class NutritionAgent:
                     temperature=0.7,
                 ),
             )
-            return response.text.strip()
+            return response.text.strip(), True, ""
         except Exception as exc:
-            return self._fallback_generation(prompt, error=str(exc))
+            return self._fallback_generation(prompt, error=str(exc)), False, str(exc)
 
     # ─────────────────────────────────────────
     # Phase 4 — Reflection (guardrails)
@@ -213,7 +217,7 @@ class NutritionAgent:
         Perception → Reasoning → Action → Reflection → Response
         """
         prompt = self._build_plan_prompt(profile)
-        raw_plan = self._call_llm(prompt, max_tokens=1500)
+        raw_plan, llm_used, llm_error = self._call_llm(prompt, max_tokens=1500)
         safe_plan = self._apply_guardrails(raw_plan)
         plan_html = self._md_to_html(safe_plan)
 
@@ -221,6 +225,8 @@ class NutritionAgent:
             "plan": safe_plan,
             "plan_html": plan_html,
             "disclaimer": DISCLAIMER,
+            "llm_used": llm_used,
+            "llm_error": llm_error,
         }
 
     def answer_query(self, message: str, profile: dict) -> str:
@@ -230,8 +236,10 @@ class NutritionAgent:
             return refusal
 
         prompt = self._build_chat_prompt(message, profile)
-        raw = self._call_llm(prompt, max_tokens=400)
+        raw, llm_used, llm_error = self._call_llm(prompt, max_tokens=400)
         safe = self._apply_guardrails(raw)
+        if not llm_used:
+            safe = f"⚠️ *Gemini API unavailable ({llm_error or 'no key set'}) — using built-in knowledge.*\n\n{safe}"
         return safe
 
     # ─────────────────────────────────────────

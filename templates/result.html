@@ -38,6 +38,20 @@
 
 <main class="container result-page">
 
+  <!-- ── API Status Banner ── -->
+  {% if not llm_used %}
+  <div class="alert alert-api-warn">
+    <strong>⚠️ Gemini AI Unavailable</strong> —
+    {% if llm_error %}
+      {{ llm_error }}
+    {% else %}
+      GEMINI_API_KEY is not set in your <code>.env</code> file.
+    {% endif %}
+    The plan below was generated using NutriBot's built-in nutrition knowledge.
+    <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Get a free API key →</a>
+  </div>
+  {% endif %}
+
   <!-- ── Profile Summary ── -->
   <div class="card profile-summary">
     <h2 class="card-title">📌 Profile Summary</h2>

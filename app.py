@@ -7,8 +7,12 @@ IBM Granite LLM powered | Agentic AI SDLC
 import os
 import json
 import datetime
+from dotenv import load_dotenv
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from agent import NutritionAgent
+
+# Load .env before anything reads os.environ
+load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "nutribot2-secret-key-2026")
@@ -58,6 +62,8 @@ def generate():
         plan_html=result["plan_html"],
         disclaimer=result["disclaimer"],
         md_filename=os.path.basename(md_path),
+        llm_used=result.get("llm_used", False),
+        llm_error=result.get("llm_error", ""),
     )
 
 
